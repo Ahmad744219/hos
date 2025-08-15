@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MicroApps — HTML App Launcher (PWA MVP) — Fixed</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b74de" />
+
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#0b74de; --muted:#9aa6b2;
+      --glass: rgba(255,255,255,0.03);
+      color-scheme: dark;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%; margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue"; background:linear-gradient(180deg,#07101a 0%, #051020 100%); color:#e6eef6}
+    /* when runner is open hide the page header to avoid overlap */
+    .runner-open header{display:none}
+
+    /* top header */
+    header{display:flex; gap:12px; align-items:center; padding:14px; border-bottom:1px solid rgba(255,255,255,0.03); position:sticky; top:0; backdrop-filter: blur(6px); background:linear-gradient(180deg, rgba(11,17,30,0.6), rgba(11,17,30,0.4)); z-index:90}
+    header h1{margin:0; font-size:16px}
+    .controls{margin-left:auto; display:flex; gap:8px; align-items:center}
+    button{background:var(--glass); border:1px solid rgba(255,255,255,0.04); color:inherit; padding:8px 10px; border-radius:10px; cursor:pointer}
+    button.primary{background:linear-gradient(90deg,var(--accent), #36a0ff); color:white; border:none}
+
+    /* main area and grid */
+    main{padding:18px; max-width:1000px; margin:0 auto; max-height: calc(100vh - 96px); overflow:auto}
+    .grid{display:grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap:12px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); padding:10px; border-radius:12px; text-align:center; cursor:pointer; min-height:120px; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative}
+    .card img{width:64px; height:64px; object-fit:cover; border-radius:14px}
+    .card small{color:var(--muted); margin-top:8px; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%}
+    .empty{padding:40px; text-align:center; color:var(--muted)}
+    .toolbar{display:flex; gap:8px; align-items:center}
+
+    /* modal */
+    .modal{position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:20px; z-index:120}
+    .modal.show{display:flex}
+    .sheet{width:100%; max-width:820px; background:linear-gradient(180deg, #071226, #041020); border-radius:14px; padding:16px; box-shadow:0 10px 30px rgba(2,6,23,0.8); max-height:90vh; overflow:auto}
+    label{display:block; font-size:13px; margin-top:8px; color:var(--muted)}
+    input[type="text"], textarea{width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.03); background:transparent; color:inherit; resize:vertical}
+    textarea{min-height:220px; font-family:monospace; font-size:13px}
+
+    /* runner */
+    .runner{position:fixed; inset:0; display:none; z-index:100; background:#000}
+    .runner.show{display:block}
+    .runner header{position:absolute; top:8px; left:8px; right:8px; display:flex; gap:8px; align-items:center; z-index:101}
+    .icon-small{width:36px; height:36px; border-radius:8px; object-fit:cover}
+    .iframe-wrap{position:absolute; inset:0; display:block}
+    iframe.appframe{width:100%; height:100%; border:0; background:white}
+
+    .install-hint{font-size:13px; color:var(--muted)}
+    .file-controls{display:flex; gap:8px; align-items:center}
+    .search{padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.03); background:transparent; color:inherit; min-width:140px}
+    footer{padding:12px; text-align:center; color:var(--muted); font-size:13px}
+
+    /* card actions (edit/delete) */
+    .card .menu-btn{position:absolute; top:8px; right:8px; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center}
+    .card .mini-menu{position:absolute; top:42px; right:8px; background:linear-gradient(180deg,#071226,#041020); padding:6px; border-radius:8px; display:none; box-shadow:0 8px 18px rgba(0,0,0,0.6)}
+    .card .mini-menu.show{display:block}
+    .card .mini-menu button{display:block; width:120px; text-align:left; padding:6px 8px; border-radius:6px}
+
+    /* Responsive tweaks */
+    @media (max-width:900px){
+      main{padding:12px; max-width:920px}
+      .grid{grid-template-columns: repeat(auto-fill,minmax(120px,1fr));}
+      .card img{width:56px;height:56px}
+      .search{min-width:100px}
+      .toolbar{gap:6px}
+    }
+
+    @media (max-width:640px){
+      header{flex-direction:column; align-items:flex-start; gap:10px}
+      header h1{font-size:15px}
+      .controls{width:100%; margin-left:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+      .toolbar{flex-wrap:wrap; gap:6px}
+      .search{flex:1; width:100%; order:0; min-width:0}
+      .toolbar{order:1; width:100%; justify-content:flex-start}
+      .grid{grid-template-columns: repeat(2,1fr); gap:10px}
+      .card{min-height:110px;padding:10px}
+      .card img{width:52px;height:52px}
+      .sheet{width:100%; height:92vh; border-radius:12px; padding:12px}
+
+      /* runner header stacks on mobile */
+      .runner header{position:static; flex-direction:column; align-items:stretch; padding:10px}
+      .iframe-wrap{position:static; margin-top:8px}
+      iframe.appframe{height: calc(100vh - 120px)}
+    }
+
+    @media (max-width:420px){
+      .grid{grid-template-columns: repeat(2,1fr); gap:8px}
+      .card img{width:48px;height:48px}
+      button{padding:10px; font-size:14px}
+      .card .menu-btn{width:36px;height:36px}
+      .search{padding:10px}
+      iframe.appframe{height: calc(100vh - 140px)}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MicroApps — HTML App Launcher</h1>
+    <div class="controls">
+      <input id="search" class="search" placeholder="Search apps..." />
+      <div class="toolbar">
+        <button id="btnCreate" class="primary">Create New App</button>
+        <button id="btnImport">Import</button>
+        <button id="btnExportAll">Export All</button>
+        <button id="btnInstall" style="display:none">Install</button>
+        <!-- inside .toolbar next to other buttons -->
+        <button id="btnWallpaper">Wallpaper</button>
+        <button id="btnClearWallpaper" title="Clear wallpaper">Clear</button>
+        <input id="wallpaperFile" type="file" accept="image/*" style="display:none" />
+
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="grid" class="grid"></div>
+    <div id="empty" class="empty" style="display:none">
+      No apps yet — click <strong>Create New App</strong> to paste HTML and make an app.
+    </div>
+  </main>
+
+  <div class="modal" id="createModal" aria-hidden="true">
+    <div class="sheet">
+      <h3 id="modalTitle">Create Micro App</h3>
+      <label>App Name</label>
+      <input id="appName" type="text" placeholder="Calculator" />
+      <label>Icon (optional)</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="iconFile" type="file" accept="image/*" />
+        <button id="genIcon">Auto-generate icon</button>
+        <img id="iconPreview" class="icon-small" src="" alt="" style="display:none"/>
+      </div>
+      <label>Single-file HTML (paste here)</label>
+      <textarea id="appHtml" placeholder="&lt;!doctype html&gt;..."></textarea>
+      <input id="editingId" type="hidden" value="" />
+      <div style="display:flex; gap:8px; margin-top:10px; justify-content:flex-end">
+        <button id="cancelCreate">Cancel</button>
+        <button id="saveCreate" class="primary">Save App</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="runner" id="runner">
+    <header>
+      <img id="runnerIcon" class="icon-small" src="" alt="icon" />
+      <div style="flex:1">
+        <div id="runnerName" style="font-weight:600"></div>
+        <div class="small" id="runnerId"></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center">
+        <button id="btnDuplicate">Duplicate</button>
+        <button id="btnOpenInTab">Open in new tab</button>
+        <button id="btnExport">Export</button>
+        <button id="btnDeleteRunner">Delete</button>
+        <button id="btnCloseRunner">Close</button>
+      </div>
+    </header>
+    <div class="iframe-wrap">
+      <!-- sandbox intentionally only allows scripts and forms/modals. No same-origin to reduce risk. -->
+      <iframe id="appFrame" class="appframe" sandbox="allow-scripts allow-forms allow-modals"></iframe>
+    </div>
+  </div>
+
+  <input id="importFile" type="file" accept=".json,application/json" style="display:none" />
+
+  <footer>
+    Built as an MVP — apps run fully offline. Use export/import for backups.
+  </footer>
+
+  <script>
+  // --- IndexedDB wrapper (simple) ---
+  const DB_NAME = 'microapps-db';
+  const STORE_NAME = 'apps';
+  let dbPromise;
+
+  function openDB(){
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = () => {
+        const db = r.result;
+        if(!db.objectStoreNames.contains(STORE_NAME)){
+          db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  async function getDB(){
+    if(!dbPromise) dbPromise = openDB();
+    return dbPromise;
+  }
+
+  async function addAppRecord(obj){
+    const db = await getDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE_NAME,'readwrite');
+      tx.objectStore(STORE_NAME).add(obj).onsuccess = e => res(e.target.result);
+      tx.onerror = ()=> rej(tx.error);
+    });
+  }
+
+  async function putAppRecord(obj){
+    const db = await getDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE_NAME,'readwrite');
+      tx.objectStore(STORE_NAME).put(obj).onsuccess = e => res(e.target.result);
+      tx.onerror = ()=> rej(tx.error);
+    });
+  }
+
+  async function getAllApps(){
+    const db = await getDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE_NAME,'readonly');
+      const req = tx.objectStore(STORE_NAME).getAll();
+      req.onsuccess = ()=> res(req.result);
+      req.onerror = ()=> rej(req.error);
+    });
+  }
+
+  async function getApp(id){
+    const db = await getDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE_NAME,'readonly');
+      const req = tx.objectStore(STORE_NAME).get(Number(id));
+      req.onsuccess = ()=> res(req.result);
+      req.onerror = ()=> rej(req.error);
+    });
+  }
+
+  async function deleteApp(id){
+    const db = await getDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE_NAME,'readwrite');
+      const req = tx.objectStore(STORE_NAME).delete(Number(id));
+      req.onsuccess = ()=> res(true);
+      req.onerror = ()=> rej(req.error);
+    });
+  }
+
+  // --- UI helpers ---
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  const searchInput = document.getElementById('search');
+
+  // debounce helper
+  function debounce(fn, wait=250){ let t; return (...a)=>{ clearTimeout(t); t = setTimeout(()=>fn(...a), wait); } }
+
+  async function refreshGrid(filter=''){
+    const apps = await getAllApps();
+    const rows = apps.filter(a => (a.name||'').toLowerCase().includes(filter.toLowerCase())).sort((a,b)=>b.id-a.id);
+    grid.innerHTML = '';
+    if(rows.length === 0){
+      empty.style.display = 'block';
+    } else empty.style.display = 'none';
+
+    for(const a of rows){
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.id = a.id;
+      const img = document.createElement('img');
+      img.src = a.icon || createLetterIconData(a.name || 'A');
+      img.alt = a.name;
+      const name = document.createElement('small');
+      name.textContent = a.name;
+
+      // menu button
+      const menuBtn = document.createElement('button');
+      menuBtn.className = 'menu-btn';
+      menuBtn.innerHTML = '⋯';
+      menuBtn.title = 'Actions';
+
+      const mini = document.createElement('div');
+      mini.className = 'mini-menu';
+      const editBtn = document.createElement('button'); editBtn.textContent = 'Edit';
+      const delBtn = document.createElement('button'); delBtn.textContent = 'Delete';
+      const expBtn = document.createElement('button'); expBtn.textContent = 'Export';
+      mini.appendChild(editBtn); mini.appendChild(delBtn); mini.appendChild(expBtn);
+
+      menuBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); mini.classList.toggle('show'); });
+
+      // wire actions
+      editBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); mini.classList.remove('show'); openEditModal(a.id); });
+      delBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); mini.classList.remove('show'); confirmDelete(a.id, a.name); });
+      expBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); mini.classList.remove('show'); exportSingleApp(a); });
+
+      // open app on card click (but not when menu clicked)
+      card.addEventListener('click', (e)=> openRunner(a.id));
+
+      card.appendChild(menuBtn);
+      card.appendChild(mini);
+      card.appendChild(img);
+      card.appendChild(name);
+      grid.appendChild(card);
+    }
+  }
+
+  // --- icon generator (canvas) ---
+  function createLetterIconData(name){
+    const letter = (name && name.trim()[0]) ? name.trim()[0].toUpperCase() : 'A';
+    const c = document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx = c.getContext('2d');
+    const g = ctx.createLinearGradient(0,0,256,256);
+    const colors = [
+      ['#0b74de','#36a0ff'],
+      ['#6b46c1','#b794f4'],
+      ['#dd6b20','#ffb86b'],
+      ['#16a34a','#86efac'],
+      ['#e11d48','#fb7185']
+    ];
+    const col = colors[Math.abs(hashCode(name||'a')) % colors.length];
+    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,256,256);
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.font = 'bold 140px sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(letter,128,138);
+    return c.toDataURL('image/png');
+  }
+  function hashCode(s){ let h=0; for(let i=0;i<s.length;i++){ h = ((h<<5)-h)+s.charCodeAt(i); h |= 0 } return h; }
+
+  // --- create modal flow ---
+  const createModal = document.getElementById('createModal');
+  const btnCreate = document.getElementById('btnCreate');
+  const cancelCreate = document.getElementById('cancelCreate');
+  const saveCreate = document.getElementById('saveCreate');
+  const appName = document.getElementById('appName');
+  const appHtml = document.getElementById('appHtml');
+  const iconFile = document.getElementById('iconFile');
+  const iconPreview = document.getElementById('iconPreview');
+  const genIconBtn = document.getElementById('genIcon');
+  const editingId = document.getElementById('editingId');
+  const modalTitle = document.getElementById('modalTitle');
+
+  btnCreate.addEventListener('click', ()=> {
+    editingId.value=''; modalTitle.textContent='Create Micro App';
+    appName.value=''; appHtml.value=''; iconFile.value=''; iconPreview.style.display='none'; createModal.classList.add('show');
+  });
+  cancelCreate.addEventListener('click', ()=> createModal.classList.remove('show'));
+
+  iconFile.addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const data = await fileToDataURL(f);
+    iconPreview.src = data; iconPreview.style.display='block';
+  });
+
+  genIconBtn.addEventListener('click', ()=>{
+    const d = createLetterIconData(appName.value || 'A');
+    iconPreview.src = d; iconPreview.style.display='block';
+  });
+
+  saveCreate.addEventListener('click', async ()=>{
+    const name = appName.value.trim() || 'Untitled App';
+    const html = appHtml.value;
+    if(!html || html.trim().length < 5){ alert('Please paste your single-file HTML code'); return; }
+    const icon = iconPreview.src || createLetterIconData(name);
+
+    if(editingId.value){
+      // update existing
+      const id = Number(editingId.value);
+      const existing = await getApp(id);
+      if(!existing) return alert('App not found');
+      const updated = { ...existing, name, html, icon, updatedAt: Date.now() };
+      await putAppRecord(updated);
+      createModal.classList.remove('show');
+      await refreshGrid(searchInput.value);
+      openRunner(id);
+    } else {
+      // new
+      const item = { name, html, icon, createdAt: Date.now() };
+      const id = await addAppRecord(item);
+      createModal.classList.remove('show');
+      await refreshGrid(searchInput.value);
+      openRunner(id);
+    }
+  });
+
+  function fileToDataURL(file){
+    return new Promise((res,rej)=>{
+      const r = new FileReader();
+      r.onload = ()=> res(r.result);
+      r.onerror = ()=> rej(r.error);
+      r.readAsDataURL(file);
+    });
+  }
+
+  // --- runner (open app) ---
+  const runner = document.getElementById('runner');
+  const runnerIcon = document.getElementById('runnerIcon');
+  const runnerName = document.getElementById('runnerName');
+  const runnerId = document.getElementById('runnerId');
+  const appFrame = document.getElementById('appFrame');
+  const btnCloseRunner = document.getElementById('btnCloseRunner');
+  const btnExport = document.getElementById('btnExport');
+  const btnOpenInTab = document.getElementById('btnOpenInTab');
+  const btnDeleteRunner = document.getElementById('btnDeleteRunner');
+  const btnDuplicate = document.getElementById('btnDuplicate');
+
+  // make Blob mode the default and track blob URL
+  let lastBlobUrl = null;
+
+  async function openRunner(id){
+    const item = await getApp(id);
+    if(!item) return alert('App not found');
+    runnerIcon.src = item.icon || createLetterIconData(item.name);
+    runnerName.textContent = item.name;
+    runnerId.textContent = 'id: ' + item.id;
+
+    // load app via Blob URL by default (allows same-origin features)
+    try{ if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl); }catch(_){}
+    const blob = new Blob([item.html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    lastBlobUrl = url;
+    appFrame.removeAttribute('srcdoc');
+    appFrame.sandbox = 'allow-scripts allow-forms allow-modals allow-same-origin';
+    appFrame.src = url;
+
+    // show runner and hide page header to avoid overlap
+    runner.classList.add('show');
+    document.documentElement.classList.add('runner-open');
+
+    history.pushState({page:'app', id:item.id}, '', '#app-'+item.id);
+    btnExport.onclick = ()=> exportSingleApp(item);
+    btnOpenInTab.onclick = ()=> {
+      const blob2 = new Blob([item.html], {type:'text/html'});
+      const url2 = URL.createObjectURL(blob2);
+      window.open(url2, '_blank');
+    };
+    btnDeleteRunner.onclick = async ()=> { if(confirm('Delete this app?')){ await deleteApp(item.id); runner.classList.remove('show'); try{ if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl); }catch(_){} lastBlobUrl=null; document.documentElement.classList.remove('runner-open'); await refreshGrid(searchInput.value); history.pushState({}, '', '/'); } };
+    btnDuplicate.onclick = async ()=>{
+      const dup = { name: item.name + ' (copy)', html: item.html, icon: item.icon, createdAt: Date.now() };
+      const newId = await addAppRecord(dup);
+      await refreshGrid(searchInput.value);
+      openRunner(newId);
+    };
+  }
+
+  btnCloseRunner.addEventListener('click', ()=> {
+    runner.classList.remove('show');
+    try{ if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl); }catch(_){} lastBlobUrl = null;
+    appFrame.srcdoc = '<!doctype html><meta charset="utf-8"><body style="background:#000"></body>';
+    document.documentElement.classList.remove('runner-open');
+    history.pushState({}, '', '/');
+  });
+
+  async function exportSingleApp(item){
+    const payload = { app: item, exportedAt: Date.now() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = (item.name || 'microapp') + '.json'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // --- import/export all ---
+  const importFile = document.getElementById('importFile');
+  const btnImport = document.getElementById('btnImport');
+  const btnExportAll = document.getElementById('btnExportAll');
+
+  btnImport.addEventListener('click', ()=> importFile.click());
+  importFile.addEventListener('change', async (e)=>{
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    const text = await f.text();
+    try{
+      const parsed = JSON.parse(text);
+      if(parsed.app){
+        parsed.app.createdAt = Date.now();
+        delete parsed.app.id;
+        await addAppRecord(parsed.app);
+        alert('Imported app: ' + parsed.app.name);
+      } else if(Array.isArray(parsed)){
+        for(const p of parsed) { delete p.id; p.createdAt = Date.now(); await addAppRecord(p); }
+        alert('Imported ' + parsed.length + ' apps');
+      } else if(parsed.name && parsed.html){
+        delete parsed.id; parsed.createdAt = Date.now(); await addAppRecord(parsed);
+        alert('Imported');
+      } else {
+        alert('Unknown import format');
+      }
+      await refreshGrid(searchInput.value);
+    }catch(err){ alert('Invalid JSON file: '+err.message) }
+    importFile.value='';
+  });
+
+  btnExportAll.addEventListener('click', async ()=>{
+    const apps = await getAllApps();
+    const blob = new Blob([JSON.stringify(apps, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'microapps-backup.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // --- search ---
+  searchInput.addEventListener('input', debounce(()=> refreshGrid(searchInput.value), 200));
+
+  // --- helpers: open edit modal & delete confirmation ---
+  async function openEditModal(id){
+    const item = await getApp(id);
+    if(!item) return alert('Not found');
+    editingId.value = item.id;
+    modalTitle.textContent = 'Edit Micro App';
+    appName.value = item.name;
+    appHtml.value = item.html;
+    iconPreview.src = item.icon || createLetterIconData(item.name);
+    iconPreview.style.display='block';
+    createModal.classList.add('show');
+  }
+
+  async function confirmDelete(id, name){
+    if(!confirm('Delete "'+(name||'this app')+'"? This cannot be undone.')) return;
+    await deleteApp(id);
+    // if currently open runner is the deleted app, close it
+    if(runner.classList.contains('show') && runnerId.textContent.includes('id: '+id)){
+      runner.classList.remove('show'); try{ if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl); }catch(_){} lastBlobUrl=null; appFrame.srcdoc = '<!doctype html><meta charset="utf-8"><body style="background:#000"></body>'; document.documentElement.classList.remove('runner-open'); history.pushState({}, '', '/');
+    }
+    await refreshGrid(searchInput.value);
+  }
+
+  // --- PWA install prompt handling ---
+  let deferredPrompt;
+  const btnInstall = document.getElementById('btnInstall');
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    btnInstall.style.display = 'inline-block';
+  });
+  btnInstall.addEventListener('click', async ()=>{
+    if(!deferredPrompt) return alert('Install not ready');
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    btnInstall.style.display = 'none';
+  });
+
+  // register service worker
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').then(()=> console.log('SW registered')).catch(err=>console.warn('SW failed', err));
+  }
+
+  // deep-linking: if URL has hash #app-<id> open runner
+  window.addEventListener('popstate', async (e)=>{
+    if(location.hash.startsWith('#app-')){
+      const id = location.hash.split('-')[1];
+      await openRunner(id);
+    } else {
+      runner.classList.remove('show');
+      try{ if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl); }catch(_){} lastBlobUrl=null; document.documentElement.classList.remove('runner-open');
+    }
+  });
+
+  // initial load
+  (async ()=>{
+    await getDB();
+    await refreshGrid();
+    if(location.hash.startsWith('#app-')){
+      const id = location.hash.split('-')[1];
+      setTimeout(()=> openRunner(id), 300);
+    }
+  })();
+
+  // Warn user about executing arbitrary HTML
+  console.log('MicroApps: Running arbitrary HTML pasted by users. Be careful with untrusted code. The iframe uses sandbox without same-origin to reduce risk.');
+  </script>
+</body>
+</html>
